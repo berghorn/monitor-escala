@@ -2,124 +2,117 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Monitor CIOPS - Local</title>
-    <!-- Bibliotecas Diretas -->
+    <title>Monitor CIOPS - PDF Local</title>
+    <!-- Bibliotecas Necessárias -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
-        body { background: #020617; color: #f8fafc; font-family: -apple-system, sans-serif; padding: 40px; }
-        .container { max-width: 900px; margin: 0 auto; }
-        .header { border-bottom: 2px solid #1e293b; padding-bottom: 20px; margin-bottom: 30px; }
-        .upload-area { background: #0f172a; border: 2px dashed #334155; padding: 40px; border-radius: 15px; text-align: center; }
-        .btn-upload { background: #38bdf8; color: #020617; padding: 12px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; }
-        .progress-bar { width: 100%; bg: #1e293b; height: 10px; border-radius: 5px; margin-top: 20px; display: none; }
-        .progress-fill { background: #38bdf8; height: 100%; width: 0%; border-radius: 5px; transition: 0.3s; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-top: 40px; }
-        .card { background: #1e293b; padding: 20px; border-radius: 12px; border-top: 4px solid #38bdf8; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
-        .cia-title { color: #38bdf8; font-size: 1.2rem; font-weight: 800; margin-bottom: 15px; text-transform: uppercase; }
-        .item { font-size: 0.9rem; padding: 5px 0; border-bottom: 1px solid #334155; color: #cbd5e1; }
-        #error-msg { color: #f87171; background: #450a0a; padding: 10px; border-radius: 5px; margin-top: 10px; display: none; }
+        body { background: #020617; color: #f8fafc; font-family: sans-serif; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .upload-box { background: #0f172a; border: 2px dashed #334155; padding: 30px; border-radius: 12px; text-align: center; }
+        .progress-container { margin: 20px 0; display: none; }
+        .bar { width: 100%; bg: #1e293b; height: 12px; border-radius: 6px; background: #1e293b; overflow: hidden; }
+        .fill { background: #38bdf8; height: 100%; width: 0%; transition: 0.2s; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 30px; }
+        .card { background: #1e293b; padding: 15px; border-radius: 10px; border-top: 4px solid #38bdf8; }
+        .cia-name { color: #38bdf8; font-weight: bold; font-size: 1.1rem; border-bottom: 1px solid #334155; margin-bottom: 10px; padding-bottom: 5px; }
+        .line { font-size: 0.85rem; padding: 3px 0; color: #cbd5e1; border-bottom: 1px solid #0f172a; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1 style="margin:0">Monitor de Escalas Local</h1>
-            <p style="color:#64748b">Organização por CIA • 100% Offline e Seguro</p>
-        </div>
-
-        <div class="upload-area" id="dropZone">
-            <p>Selecione a imagem da escala (JPG ou PNG)</p>
-            <input type="file" id="fileInput" accept="image/*" style="display:none">
-            <button class="btn-upload" onclick="document.getElementById('fileInput').click()">ESCOLHER ARQUIVO</button>
-            <div id="error-msg"></div>
-            
-            <div class="progress-bar" id="pBar">
-                <div class="progress-fill" id="pFill"></div>
+        <h1>Monitor de Escalas (PDF)</h1>
+        <div class="upload-box">
+            <p>Selecione a escala em <b>PDF</b> ou <b>Imagem</b></p>
+            <input type="file" id="fileInput" accept="application/pdf,image/*">
+            <div class="progress-container" id="pContainer">
+                <div id="statusTxt">Processando...</div>
+                <div class="bar"><div class="fill" id="pFill"></div></div>
             </div>
-            <p id="pText" style="margin-top:10px; font-size: 0.8rem; color:#38bdf8"></p>
         </div>
-
         <div id="output" class="grid"></div>
     </div>
 
     <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
         const fileInput = document.getElementById('fileInput');
-        const output = document.getElementById('output');
-        const errorMsg = document.getElementById('error-msg');
-        const pBar = document.getElementById('pBar');
         const pFill = document.getElementById('pFill');
-        const pText = document.getElementById('pText');
+        const statusTxt = document.getElementById('statusTxt');
+        const pContainer = document.getElementById('pContainer');
+        const output = document.getElementById('output');
 
         fileInput.onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
-            // Reset
-            errorMsg.style.display = 'none';
+            pContainer.style.display = 'block';
             output.innerHTML = '';
-            pBar.style.display = 'block';
-            pText.innerText = "Iniciando motor de OCR...";
+            statusTxt.innerText = "Preparando documento...";
 
             try {
-                // OCR via Tesseract.js
+                let imageData;
+
+                if (file.type === "application/pdf") {
+                    statusTxt.innerText = "Convertendo PDF para imagem...";
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+                    const page = await pdf.getPage(1); // Lendo a primeira página
+                    const viewport = page.getViewport({ scale: 2.0 });
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    imageData = canvas.toDataURL('image/png');
+                } else {
+                    imageData = file;
+                }
+
+                statusTxt.innerText = "Iniciando leitura de texto (OCR)...";
                 const worker = await Tesseract.createWorker('por', 1, {
                     logger: m => {
                         if (m.status === 'recognizing text') {
                             const p = Math.round(m.progress * 100);
                             pFill.style.width = p + '%';
-                            pText.innerText = `Lendo Escala: ${p}%`;
+                            statusTxt.innerText = `Lendo Escala: ${p}%`;
                         }
                     }
                 });
 
-                const { data: { text } } = await worker.recognize(file);
+                const { data: { text } } = await worker.recognize(imageData);
                 await worker.terminate();
-                
-                if (!text || text.trim().length < 10) {
-                    throw new Error("Não foi possível ler texto na imagem. Verifique a nitidez.");
-                }
 
-                pBar.style.display = 'none';
-                pText.innerText = "Processamento concluído!";
-
-                // Organização Lógica por CIA (Mantendo a Ordem)
+                // Lógica de Organização por CIA
                 const lines = text.split('\n');
                 let groups = {};
-                let currentGroup = "GERAL / OUTROS";
+                let currentGroup = "GERAL / CABEÇALHO";
 
                 lines.forEach(line => {
                     const txt = line.trim();
                     if (txt.length < 5) return;
 
-                    // Identifica o título da CIA
-                    if (txt.match(/(\d+)\s?(ª|°|a|o)\s?CIA/i)) {
-                        currentGroup = txt.toUpperCase();
-                    }
+                    const ciaMatch = txt.match(/(\d+)\s?(ª|°|a|o)\s?CIA/i);
+                    if (ciaMatch) currentGroup = ciaMatch[0].toUpperCase();
 
                     if (!groups[currentGroup]) groups[currentGroup] = [];
                     groups[currentGroup].push(txt);
                 });
 
-                // Renderiza na tela
+                // Renderizar
                 for (let cia in groups) {
                     const card = document.createElement('div');
                     card.className = 'card';
-                    card.innerHTML = `<div class="cia-title">${cia}</div>`;
-                    
+                    card.innerHTML = `<div class="cia-name">${cia}</div>`;
                     groups[cia].forEach(item => {
-                        const div = document.createElement('div');
-                        div.className = 'item';
-                        div.innerText = item;
-                        card.appendChild(div);
+                        card.innerHTML += `<div class="line">${item}</div>`;
                     });
                     output.appendChild(card);
                 }
+                pContainer.style.display = 'none';
 
             } catch (err) {
-                errorMsg.innerText = "ERRO: " + err.message;
-                errorMsg.style.display = 'block';
-                pBar.style.display = 'none';
-                pText.innerText = "";
+                alert("Erro: " + err.message);
                 console.error(err);
             }
         };
