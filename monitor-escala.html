@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Monitor CIOPS - Organizado por CIA</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-200 font-sans">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function App() {
+            const [schedules, setSchedules] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [progress, setProgress] = useState(0);
+
+            useEffect(() => {
+                const saved = localStorage.getItem('ciops_data_v3');
+                if (saved) setSchedules(JSON.parse(saved));
+            }, []);
+
+            const processScale = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                setLoading(true);
+                
+                const worker = await Tesseract.createWorker('por', 1, {
+                    logger: m => { if(m.status === 'recognizing text') setProgress(Math.round(m.progress * 100)) }
+                });
+
+                const { data: { text } } = await worker.recognize(file);
+                await worker.terminate();
+
+                // LÓGICA DE ORGANIZAÇÃO POR ORDEM DA ESCALA
+                const lines = text.split('\n');
+                let currentCia = "GERAL / NÃO IDENTIFICADO";
+                const organizedData = {};
+
+                lines.forEach(line => {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine) return;
+
+                    // Detecta se a linha indica uma Companhia (ex: 1a CIA, 2° CIA)
+                    const ciaMatch = trimmedLine.match(/(\d+)\s?(ª|°|a|o)\s?CIA/i);
+                    if (ciaMatch) {
+                        currentCia = ciaMatch[0].toUpperCase();
+                    }
+
+                    if (!organizedData[currentCia]) organizedData[currentCia] = [];
+                    
+                    // Se a linha tem cara de Viatura ou Cidade (Regex simples)
+                    if (trimmedLine.match(/(CP|RP|VTR|POG|\d{5})/i)) {
+                        organizedData[currentCia].push(trimmedLine);
+                    }
+                });
+
+                const newEntry = {
+                    id: Date.now(),
+                    date: new Date().toLocaleString(),
+                    companies: organizedData
+                };
+
+                const updated = [newEntry, ...schedules];
+                setSchedules(updated);
+                localStorage.setItem('ciops_data_v3', JSON.stringify(updated));
+                setLoading(false);
+                setProgress(0);
+            };
+
+            return (
+                <div class="p-4 md:p-8 max-w-6xl mx-auto">
+                    <header class="flex flex-col md:flex-row justify-between items-center border-b border-slate-800 pb-6 mb-8 gap-4">
+                        <div>
+                            <h1 class="text-3xl font-black text-sky-500 tracking-tight">CIOPS MONITOR</h1>
+                            <p class="text-slate-500 text-sm italic">Organização automática por Companhia (Local)</p>
+                        </div>
+                        <input type="file" onChange={processScale} disabled={loading} class="text-sm text-slate-500 file:mr-4 file:py-2 file:px-6 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-sky-600 file:text-white hover:file:bg-sky-500 cursor-pointer transition-all"/>
+                    </header>
+
+                    {loading && (
+                        <div class="mb-8 p-6 bg-slate-900 rounded-xl border border-sky-900/50 animate-pulse">
+                            <div class="text-sky-400 font-bold mb-2 text-center">Lendo Escala: {progress}%</div>
+                            <div class="w-full bg-slate-800 h-3 rounded-full overflow-hidden">
+                                <div class="bg-sky-500 h-full transition-all duration-300" style={{width: `${progress}%`}}></div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div class="space-y-10">
+                        {schedules.map(s => (
+                            <div key={s.id} class="bg-slate-900/50 rounded-2xl border border-slate-800 p-6 shadow-2xl">
+                                <div class="flex justify-between items-center mb-6">
+                                    <span class="bg-sky-500/10 text-sky-500 px-4 py-1 rounded-full text-xs font-bold border border-sky-500/20 uppercase tracking-widest">
+                                        Escala de {s.date}
+                                    </span>
+                                </div>
+                                
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {Object.entries(s.companies).map(([cia, items]) => (
+                                        <div key={cia} class="flex flex-col">
+                                            <h3 class="text-sky-400 font-black border-l-4 border-sky-600 pl-3 mb-4 tracking-tighter">
+                                                {cia}
+                                            </h3>
+                                            <div class="bg-slate-950/50 rounded-xl p-4 border border-slate-800 flex-1 space-y-2">
+                                                {items.length > 0 ? items.map((item, idx) => (
+                                                    <div key={idx} class="text-sm py-2 border-b border-slate-900 last:border-0 hover:text-white transition-colors">
+                                                        <span class="text-slate-600 mr-2">•</span>{item}
+                                                    </div>
+                                                )) : <span class="text-slate-700 italic text-xs">Nenhum dado capturado</span>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
